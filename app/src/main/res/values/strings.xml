@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">Bathtime Bucks</string>
+    <string name="marquee_title">BATHTIME BUCKS</string>
+    <string name="btn_collect">COLLECT</string>
+    <string name="btn_prize_viewer">PRIZE VIEWER</string>
+    <string name="btn_rules">RULES</string>
+    <string name="btn_info">INFO</string>
+    <string name="btn_settings">SETTINGS</string>
+    <string name="btn_max">MAX</string>
+    <string name="btn_play">PLAY</string>
+    <string name="label_play_amount">PLAY AMOUNT</string>
+    <string name="label_win">WIN</string>
+    <string name="label_balance">BALANCE</string>
+    <string name="label_progressive">PROGRESSIVE TOP PRIZE</string>
+    <string name="status_good_luck">GOOD LUCK!</string>
+    <string name="amusement_notice">FOR AMUSEMENT ONLY • VIRTUAL CREDITS • NO REAL MONEY</string>
+</resources>

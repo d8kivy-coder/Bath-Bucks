@@ -1,0 +1,6 @@
+{
+  "name": "Bathtime Bucks",
+  "description": "Arcade 5-reel skill slot game with rubber ducky wilds, Hot Swap bonuses, Skill Nudge picks, Bonus Spins, and virtual amusement credits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
