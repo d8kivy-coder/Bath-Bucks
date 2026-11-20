@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.components.BonusCelebrationOverlay
+import com.example.ui.components.BonusSummaryOverlay
 import com.example.ui.components.CollectTicketDialog
 import com.example.ui.components.ControlDeck
 import com.example.ui.components.MarqueeHeader
@@ -126,6 +127,10 @@ fun BathtimeBucksScreen(viewModel: BathtimeViewModel = viewModel()) {
               hotSwapSpots = state.hotSwapSpots,
               skillPrompt = state.skillPrompt,
               instantWinBadgeCents = state.instantWinBadgeCents,
+              spinId = state.spinId,
+              reelTargetDurationMs = state.reelTargetDurationMs,
+              bonusSpinsRemaining = state.bonusSpinsRemaining,
+              freeSpinsTotalWonCents = state.freeSpinsTotalWonCents,
               onSkillChoose = {
                 if (state.hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 viewModel.onSkillChoose(it)
@@ -181,6 +186,10 @@ fun BathtimeBucksScreen(viewModel: BathtimeViewModel = viewModel()) {
             hotSwapSpots = state.hotSwapSpots,
             skillPrompt = state.skillPrompt,
             instantWinBadgeCents = state.instantWinBadgeCents,
+            spinId = state.spinId,
+            reelTargetDurationMs = state.reelTargetDurationMs,
+            bonusSpinsRemaining = state.bonusSpinsRemaining,
+            freeSpinsTotalWonCents = state.freeSpinsTotalWonCents,
             onSkillChoose = {
               if (state.hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
               viewModel.onSkillChoose(it)
@@ -250,6 +259,12 @@ fun BathtimeBucksScreen(viewModel: BathtimeViewModel = viewModel()) {
       bonus = state.shampooPickBonus,
       onPickTile = { viewModel.onPickShampooTile(it) },
       onCollectBonus = { viewModel.onCollectShampooPickBonus() },
+      modifier = Modifier.fillMaxSize(),
+    )
+
+    BonusSummaryOverlay(
+      summary = state.bonusSummary,
+      onDismiss = { viewModel.dismissBonusSummary() },
       modifier = Modifier.fillMaxSize(),
     )
   }

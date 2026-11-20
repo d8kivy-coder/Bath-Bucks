@@ -55,6 +55,15 @@ data class ShampooPickBonus(
 )
 
 @Immutable
+data class BonusSummary(
+  val title: String,
+  val subtitle: String,
+  val totalWonCents: Long,
+  val triggerSymbol: SlotSymbol,
+  val roundsLabel: String,
+)
+
+@Immutable
 data class GameState(
   val balanceCents: Long = 100_000L, // $1,000.00 starting virtual amusement credits
   val wagerCents: Long = 100L, // $1.00 default play amount
@@ -62,14 +71,20 @@ data class GameState(
   val winCents: Long = 0L,
   val displayedWinCents: Long = 0L,
   val grid: List<List<SlotSymbol>> = defaultInitialGrid(),
+  val spinId: Long = 0L,
   val reelSpinning: List<Boolean> = listOf(false, false, false, false, false),
+  val reelTargetDurationMs: List<Long> = listOf(920L, 1240L, 1560L, 1880L, 2220L),
   val winningLines: List<WinningLine> = emptyList(),
   val bonusTriggerCells: Set<Pair<Int, Int>> = emptySet(),
   val bonusCelebration: BonusCelebration? = null,
   val shampooPickBonus: ShampooPickBonus? = null,
+  val bonusSummary: BonusSummary? = null,
   val skillPrompt: SkillPrompt? = null,
   val hotSwapSpots: List<HotSwapSpot> = emptyList(),
   val bonusSpinsRemaining: Int = 0,
+  val freeSpinsTotalWonCents: Long = 0L,
+  val freeSpinsTotalGranted: Int = 0,
+  val pendingShampooTriggerCents: Long = 0L,
   val statusBanner: String = "GOOD LUCK!",
   val instantWinBadgeCents: Long? = null,
   val showPrizeViewer: Boolean = false,

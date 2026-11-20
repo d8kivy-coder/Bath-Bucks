@@ -41,8 +41,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -98,6 +100,10 @@ fun ReelGrid(
   onSkillChoose: (SlotSymbol) -> Unit,
   onSkillNudge: (Int) -> Unit,
   modifier: Modifier = Modifier,
+  spinId: Long = 0L,
+  reelTargetDurationMs: List<Long> = listOf(920L, 1240L, 1560L, 1880L, 2220L),
+  bonusSpinsRemaining: Int = 0,
+  freeSpinsTotalWonCents: Long = 0L,
 ) {
   val infinite = rememberInfiniteTransition(label = "reel_fx")
   val pulse by
@@ -188,13 +194,11 @@ fun ReelGrid(
           val colSymbols =
             grid.getOrElse(col) { listOf(SlotSymbol.DUCK, SlotSymbol.DUCK, SlotSymbol.DUCK) }
 
-          // Excitement anticipation glow when stopped earlier reels already show 2+ bonus triggers
+          // Subtle golden highlight when stopped earlier reels already show 2+ Ducks or Shampoo
           val stoppedEarlierDucks =
             (0 until col).sumOf { prevCol ->
               if (!reelSpinning.getOrElse(prevCol) { false }) {
-                grid.getOrElse(prevCol) { emptyList() }.count {
-                  it == SlotSymbol.DUCK || it == SlotSymbol.WILD
-                }
+                grid.getOrElse(prevCol) { emptyList() }.count { it == SlotSymbol.DUCK }
               } else {
                 0
               }
@@ -232,13 +236,13 @@ fun ReelGrid(
                     when {
                       isSkillTarget -> 2.5.dp
                       isAnticipating -> 2.5.dp
-                      else -> 1.5.dp
+                      else -> 1.8.dp
                     },
-                  color =
+                  brush =
                     when {
-                      isSkillTarget -> DuckGold
-                      isAnticipating -> DuckGold.copy(alpha = pulse)
-                      else -> Color.White.copy(alpha = 0.65f)
+                      isSkillTarget -> Brush.verticalGradient(listOf(Color(0xFFFEF08A), DuckGold, Color(0xFFFEF08A)))
+                      isAnticipating -> Brush.verticalGradient(listOf(DuckGold.copy(alpha = pulse), Color.White))
+                      else -> Brush.verticalGradient(listOf(Color(0xFFFEF08A), Color(0xFFD97706), Color(0xFFFEF08A)))
                     },
                   shape = RoundedCornerShape(8.dp),
                 )
@@ -246,6 +250,7 @@ fun ReelGrid(
           ) {
             SpinningReelColumn(
               colIndex = col,
+              spinId = spinId,
               finalSymbols = colSymbols,
               isSpinning = isColumnSpinning,
               isAnticipating = isAnticipating,
@@ -297,6 +302,53 @@ fun ReelGrid(
         )
       }
 
+      // "Free Games Remaining: X | 2X | BONUS WIN" top reel banner during Ducky Free Spins
+      AnimatedVisibility(
+        visible = bonusSpinsRemaining > 0,
+        enter = fadeIn() + scaleIn(initialScale = 0.9f),
+        exit = fadeOut(),
+        modifier = Modifier.align(Alignment.TopCenter).padding(top = 4.dp),
+      ) {
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          modifier =
+            Modifier
+              .clip(RoundedCornerShape(50))
+              .background(BathDeepNavy.copy(alpha = 0.90f))
+              .border(1.8.dp, DuckGold, RoundedCornerShape(50))
+              .padding(horizontal = 12.dp, vertical = 3.dp),
+        ) {
+          Text(
+            text = "FREE GAMES: $bonusSpinsRemaining",
+            fontFamily = LuckiestGuyFont,
+            fontSize = 12.sp,
+            color = DuckGold,
+          )
+          Box(
+            modifier =
+              Modifier
+                .clip(RoundedCornerShape(50))
+                .background(DuckBillOrange)
+                .padding(horizontal = 6.dp, vertical = 1.dp),
+          ) {
+            Text(
+              text = "2X",
+              fontFamily = LuckiestGuyFont,
+              fontSize = 11.sp,
+              color = Color.White,
+            )
+          }
+          Text(
+            text = formatCents(freeSpinsTotalWonCents),
+            fontFamily = ChakraPetchFont,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            color = ArcadeGreenBright,
+          )
+        }
+      }
+
       // Floating "5 of a Kind" or "Instant Win $XX.XX" Banilla arcade overlay
       val hasFiveOfAKind =
         winningLines.any { it.matchCount == 5 && !it.isProgressive } && reelSpinning.none { it }
@@ -321,6 +373,7 @@ fun ReelGrid(
 @Composable
 private fun SpinningReelColumn(
   colIndex: Int,
+  spinId: Long,
   finalSymbols: List<SlotSymbol>,
   isSpinning: Boolean,
   isAnticipating: Boolean,
@@ -332,54 +385,88 @@ private fun SpinningReelColumn(
   bubblePhase: Float,
   modifier: Modifier = Modifier,
 ) {
-  // Deterministic 20-symbol strip per column for smooth continuous scrolling
-  val strip = remember(colIndex) {
-    val all = SlotSymbol.entries
-    List(20) { i -> all[(i * 3 + colIndex * 5) % all.size] }
+  val baseStrip =
+    remember(colIndex) {
+      val all = SlotSymbol.entries
+      List(24) { i -> all[(i * 3 + colIndex * 5) % all.size] }
+    }
+
+  var prevSymbols by remember { mutableStateOf(finalSymbols) }
+  var spinStartSymbols by remember { mutableStateOf(finalSymbols) }
+  var isReelAnimating by remember { mutableStateOf(false) }
+  var stopAnchorIndex by remember { mutableStateOf<Int?>(null) }
+
+  SideEffect {
+    if (!isSpinning && !isReelAnimating) {
+      prevSymbols = finalSymbols
+    }
   }
 
-  var spinProgress by remember { mutableFloatStateOf(0f) }
-  val settleOffset = remember { Animatable(0f) }
+  val cruiseVel = 18.5f + colIndex * 0.65f
+  var spinProgress by remember(spinId) { mutableFloatStateOf(0f) }
+  var currentVelocity by remember(spinId) { mutableFloatStateOf(0f) }
   val lockFlash = remember { Animatable(0f) }
-  var hadFirstSpin by remember { mutableFloatStateOf(0f) }
 
-  LaunchedEffect(isSpinning) {
+  LaunchedEffect(isSpinning, spinId) {
     if (isSpinning) {
-      hadFirstSpin = 1f
-      // Brief physical upward reel anticipation kick (~65ms) before dropping down fast
-      var kickElapsed = 0f
+      spinStartSymbols = prevSymbols
+      stopAnchorIndex = null
+      spinProgress = 0f
+      currentVelocity = 0f
+      isReelAnimating = true
+
+      val kickSec = 0.065f
+      val accelSec = 0.100f
+      var elapsedSec = 0f
       var lastNanos = 0L
-      val symbolsPerSec = 19.0f + colIndex * 1.25f
+
       while (true) {
         withFrameNanos { frameNanos ->
           if (lastNanos != 0L) {
             val dt = ((frameNanos - lastNanos) / 1_000_000_000f).coerceAtMost(0.05f)
-            if (kickElapsed < 0.065f) {
-              kickElapsed += dt
-              spinProgress -= dt * 3.2f
+            elapsedSec += dt
+            if (elapsedSec < kickSec) {
+              val kickFrac = (elapsedSec / kickSec).coerceIn(0f, 1f)
+              spinProgress = -0.15f * sin(kickFrac * PI.toFloat() * 0.5f)
+              currentVelocity = -2.2f * cos(kickFrac * PI.toFloat() * 0.5f)
             } else {
-              val speedMult = if (isAnticipating) 1.22f else 1f
-              spinProgress += dt * symbolsPerSec * speedMult
+              val accelFrac = ((elapsedSec - kickSec) / accelSec).coerceIn(0f, 1f)
+              val easedAccel = 1f - (1f - accelFrac) * (1f - accelFrac)
+              val vel = cruiseVel * easedAccel
+              spinProgress += dt * vel
+              currentVelocity = vel
             }
           }
           lastNanos = frameNanos
         }
       }
-    } else if (hadFirstSpin > 0f) {
-      // Heavy physical drum overshoot & spring bounce + lock-in flash sheen
-      lockFlash.snapTo(1f)
-      settleOffset.snapTo(-0.68f)
-      settleOffset.animateTo(
-        targetValue = 0f,
+    } else if (isReelAnimating) {
+      val targetStop = (kotlin.math.ceil(spinProgress).toInt() + 3).coerceAtLeast(3)
+      stopAnchorIndex = targetStop
+      val launchVel = currentVelocity.coerceAtLeast(9.5f)
+      val settleAnim = Animatable(spinProgress)
+      settleAnim.animateTo(
+        targetValue = targetStop.toFloat(),
         animationSpec =
           spring(
-            dampingRatio = 0.42f,
-            stiffness = 360f,
+            dampingRatio = 0.72f,
+            stiffness = 185f,
           ),
-      )
+        initialVelocity = launchVel,
+      ) {
+        spinProgress = value
+        currentVelocity = velocity
+      }
+      spinProgress = targetStop.toFloat()
+      currentVelocity = 0f
+      isReelAnimating = false
+      stopAnchorIndex = null
+      prevSymbols = finalSymbols
+
+      lockFlash.snapTo(0.85f)
       lockFlash.animateTo(
         targetValue = 0f,
-        animationSpec = tween(durationMillis = 220),
+        animationSpec = tween(durationMillis = 200),
       )
     }
   }
@@ -389,14 +476,24 @@ private fun SpinningReelColumn(
     val cellHeightDp = maxHeight / 3f
     val cellHeightPx = with(density) { cellHeightDp.toPx() }
 
-    if (isSpinning) {
+    if (isReelAnimating) {
       val baseIndex = kotlin.math.floor(spinProgress).toInt()
-      val frac = spinProgress - baseIndex // 0f..1f moving downward
+      val frac = spinProgress - baseIndex
+      val speedNorm = (kotlin.math.abs(currentVelocity) / cruiseVel).coerceIn(0f, 1f)
+      val stretchY = 1.0f + 0.04f * speedNorm
+      val squeezeX = 1.0f - 0.018f * speedNorm
+      val blurAlpha = 1.0f - 0.08f * speedNorm
+      val anchor = stopAnchorIndex
 
-      // Render 4 consecutive symbols (-1..2) scrolling smoothly with vertical motion stretch
       for (slot in -1..2) {
-        val stripIdx = Math.floorMod(baseIndex - slot, strip.size)
-        val symbol = strip[stripIdx]
+        val virtualIdx = baseIndex - slot
+        val symbol =
+          when {
+            virtualIdx in -2..0 -> spinStartSymbols.getOrElse(-virtualIdx) { SlotSymbol.DUCK }
+            anchor != null && virtualIdx in (anchor - 2)..anchor ->
+              finalSymbols.getOrElse(anchor - virtualIdx) { SlotSymbol.DUCK }
+            else -> baseStrip[Math.floorMod(virtualIdx, baseStrip.size)]
+          }
         val yPx = ((slot + frac) * cellHeightPx).roundToInt()
 
         Box(
@@ -406,49 +503,50 @@ private fun SpinningReelColumn(
               .height(cellHeightDp)
               .offset { IntOffset(0, yPx) }
               .graphicsLayer {
-                scaleY = 1.07f
-                scaleX = 0.96f
+                scaleY = stretchY
+                scaleX = squeezeX
               }
               .padding(3.dp),
           contentAlignment = Alignment.Center,
         ) {
           SymbolArtwork(
             symbol = symbol,
-            modifier = Modifier.fillMaxSize().alpha(0.90f),
+            modifier = Modifier.fillMaxSize().alpha(blurAlpha),
           )
         }
       }
 
-      // Vertical glossy motion-blur streaks + optional excitement anticipation glow
       Canvas(modifier = Modifier.fillMaxSize()) {
-        val streakAlpha = 0.14f
-        drawLine(
-          color = Color.White.copy(alpha = streakAlpha),
-          start = Offset(size.width * 0.22f, 0f),
-          end = Offset(size.width * 0.22f, size.height),
-          strokeWidth = 3f,
-        )
-        drawLine(
-          color = Color.White.copy(alpha = streakAlpha * 0.8f),
-          start = Offset(size.width * 0.78f, 0f),
-          end = Offset(size.width * 0.78f, size.height),
-          strokeWidth = 2.5f,
-        )
+        val streakAlpha = 0.12f * speedNorm
+        if (streakAlpha > 0.01f) {
+          drawLine(
+            color = Color.White.copy(alpha = streakAlpha),
+            start = Offset(size.width * 0.22f, 0f),
+            end = Offset(size.width * 0.22f, size.height),
+            strokeWidth = 3f,
+          )
+          drawLine(
+            color = Color.White.copy(alpha = streakAlpha * 0.8f),
+            start = Offset(size.width * 0.78f, 0f),
+            end = Offset(size.width * 0.78f, size.height),
+            strokeWidth = 2.5f,
+          )
+        }
         if (isAnticipating) {
           drawRect(
             brush =
               Brush.verticalGradient(
                 listOf(
-                  DuckGold.copy(alpha = 0.28f * pulse),
+                  DuckGold.copy(alpha = 0.24f * pulse),
                   Color.Transparent,
-                  DuckGold.copy(alpha = 0.28f * pulse),
+                  DuckGold.copy(alpha = 0.24f * pulse),
                 )
               )
           )
         }
       }
     } else {
-      val bouncePx = (settleOffset.value * cellHeightPx).roundToInt()
+      val bouncePx = 0
 
       for (row in 0 until 3) {
         val symbol = finalSymbols.getOrElse(row) { SlotSymbol.DUCK }
@@ -1036,3 +1134,4 @@ private fun PaylineSideMarkers(
     }
   }
 }
+

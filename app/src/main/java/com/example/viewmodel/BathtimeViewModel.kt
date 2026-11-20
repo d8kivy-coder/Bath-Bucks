@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.audio.SoundEffectManager
 import com.example.data.PreferencesRepository
 import com.example.model.BonusCelebration
+import com.example.model.BonusSummary
 import com.example.model.BonusType
 import com.example.model.GameState
 import com.example.model.HotSwapSpot
@@ -60,7 +61,12 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
 
   fun onStepWager(direction: Int) {
     val cur = _state.value
-    if (cur.isSpinning || cur.bonusSpinsRemaining > 0 || cur.shampooPickBonus != null) return
+    if (
+      cur.isSpinning ||
+        cur.bonusSpinsRemaining > 0 ||
+        cur.shampooPickBonus != null ||
+        cur.bonusSummary != null
+    ) return
     val idx = GameState.WAGER_OPTIONS_CENTS.indexOf(cur.wagerCents).coerceAtLeast(0)
     val nextIdx = (idx + direction).coerceIn(0, GameState.WAGER_OPTIONS_CENTS.lastIndex)
     val nextWager = GameState.WAGER_OPTIONS_CENTS[nextIdx]
@@ -77,7 +83,7 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
 
   fun onMaxPlayClick() {
     val cur = _state.value
-    if (cur.isSpinning || cur.shampooPickBonus != null) return
+    if (cur.isSpinning || cur.shampooPickBonus != null || cur.bonusSummary != null) return
     if (cur.skillPrompt != null && !cur.skillPrompt.isSolved) {
       soundManager.playButtonTap(cur.soundEnabled)
       _state.update { it.copy(statusBanner = "CHOOSE OR NUDGE THE HIGHLIGHTED REEL!") }
@@ -90,6 +96,10 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
   fun onPlayClick() {
     val cur = _state.value
     if (cur.shampooPickBonus != null) return
+    if (cur.bonusSummary != null) {
+      dismissBonusSummary()
+      return
+    }
     if (cur.bonusCelebration != null) {
       dismissBonusCelebration()
       return
@@ -134,6 +144,10 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
 
     soundManager.playSpinStart(startState.soundEnabled)
 
+    val finalGrid = generateTargetGrid(isBonusSpin)
+    val stopDurationsMs = listOf(920L, 320L, 320L, 320L, 340L)
+    val cumulativeTargetMs = listOf(920L, 1240L, 1560L, 1880L, 2220L)
+
     _state.update {
       it.copy(
         balanceCents = newBalance,
@@ -147,23 +161,22 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
         skillPrompt = null,
         hotSwapSpots = emptyList(),
         instantWinBadgeCents = null,
+        grid = finalGrid,
+        spinId = it.spinId + 1L,
         reelSpinning = listOf(true, true, true, true, true),
+        reelTargetDurationMs = cumulativeTargetMs,
         statusBanner = if (isBonusSpin) "SUDSY BONUS SPIN • 2X MULTIPLIER!" else "GOOD LUCK!",
         totalSpins = it.totalSpins + 1,
       )
     }
 
-    val finalGrid = generateTargetGrid(isBonusSpin)
-    _state.update { it.copy(grid = finalGrid) }
-
-    val stopDurationsMs = listOf(580L, 260L, 260L, 260L, 280L)
     val spinningFlags = MutableList(5) { true }
     for (col in 0 until 5) {
       val targetDelay = if (fastStopRequested) 55L else stopDurationsMs[col]
       var elapsed = 0L
       while (elapsed < targetDelay && !fastStopRequested) {
-        delay(35L)
-        elapsed += 35L
+        delay(25L)
+        elapsed += 25L
       }
       if (fastStopRequested && col > 0) delay(45L)
       spinningFlags[col] = false
@@ -173,7 +186,7 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
       soundManager.playReelStop(_state.value.soundEnabled, col)
       _state.update { it.copy(reelSpinning = spinningFlags.toList()) }
     }
-    delay(220L)
+    delay(380L)
 
     // Banilla "HOT SWAP" feature
     val currentGrid = _state.value.grid
@@ -217,7 +230,7 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
         bonusMultiplier = bonusMult,
       )
 
-    if (eval.totalPayoutCents == 0L && _state.value.skillModeEnabled) {
+    if (!isBonusSpin && eval.totalPayoutCents == 0L && _state.value.skillModeEnabled) {
       val skill = detectOrBuildSkillPrompt(postSwapGrid, wager, bonusMult)
       if (skill != null) {
         soundManager.playBubblePop(_state.value.soundEnabled)
@@ -330,18 +343,37 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
     val nextBonusSpins = cur.bonusSpinsRemaining + duckBonusSpins
     val isBigWin = totalPayout >= cur.wagerCents * 4L
 
+    val isEnteringFreeSpinsFresh = duckBonusSpins > 0 && cur.bonusSpinsRemaining == 0 && !wasBonusSpin
+    val isInOrFinishingFreeSpins = wasBonusSpin || cur.bonusSpinsRemaining > 0 || duckBonusSpins > 0
+    val updatedFreeSpinsTotal =
+      when {
+        isEnteringFreeSpinsFresh -> totalPayout
+        isInOrFinishingFreeSpins -> cur.freeSpinsTotalWonCents + totalPayout
+        else -> 0L
+      }
+    val updatedFreeSpinsGranted =
+      when {
+        isEnteringFreeSpinsFresh -> duckBonusSpins
+        duckBonusSpins > 0 -> cur.freeSpinsTotalGranted + duckBonusSpins
+        isInOrFinishingFreeSpins -> cur.freeSpinsTotalGranted
+        else -> 0
+      }
+
     val duckCount = cur.grid.flatten().count { it == SlotSymbol.DUCK }
     val shampooCount = cur.grid.flatten().count { it == SlotSymbol.SHAMPOO }
+
+    val freeSpinsJustFinished =
+      isInOrFinishingFreeSpins && nextBonusSpins == 0 && shampooBonusPicks == 0 && !progressiveWon
 
     val banner =
       when {
         progressiveWon -> "PROGRESSIVE TOP PRIZE! +${formatCents(totalPayout)}"
         shampooBonusPicks > 0 -> "SHAMPOO PICK BONUS! $shampooBonusPicks BOTTLE PICKS!"
         duckBonusSpins > 0 -> "DUCKY FREE SPINS! +$duckBonusSpins FREE SPINS (2X)!"
+        freeSpinsJustFinished -> "FREE SPINS COMPLETE! TOTAL WIN: ${formatCents(updatedFreeSpinsTotal)}"
         isSkillAward -> "CORRECT ICON CHOSEN! WIN ${formatCents(totalPayout)}"
         totalPayout > 0L -> "WINNER! ${formatCents(totalPayout)}"
         nextBonusSpins > 0 -> "FREE BONUS SPINS REMAINING: $nextBonusSpins"
-        wasBonusSpin -> "DUCKY FREE SPINS COMPLETE!"
         else -> "GOOD LUCK!"
       }
 
@@ -391,6 +423,9 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
         bonusTriggerCells = bonusTriggerCells,
         bonusCelebration = celebration,
         bonusSpinsRemaining = nextBonusSpins,
+        freeSpinsTotalWonCents = updatedFreeSpinsTotal,
+        freeSpinsTotalGranted = updatedFreeSpinsGranted,
+        pendingShampooTriggerCents = if (shampooBonusPicks > 0) totalPayout else it.pendingShampooTriggerCents,
         instantWinBadgeCents =
           if (celebration == null && totalPayout >= cur.wagerCents * 3L) totalPayout else null,
         statusBanner = banner,
@@ -412,6 +447,27 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
           delay(2500L)
           dismissBonusCelebration()
         }
+    } else if (freeSpinsJustFinished) {
+      viewModelScope.launch {
+        delay(if (totalPayout > 0L) 1050L else 480L)
+        soundManager.playWin(_state.value.soundEnabled, isBigWin = true)
+        _state.update {
+          it.copy(
+            winCents = updatedFreeSpinsTotal,
+            displayedWinCents = updatedFreeSpinsTotal,
+            freeSpinsTotalWonCents = 0L,
+            freeSpinsTotalGranted = 0,
+            bonusSummary =
+              BonusSummary(
+                title = "FREE GAMES COMPLETE!",
+                subtitle = "TOTAL BONUS WIN",
+                totalWonCents = updatedFreeSpinsTotal,
+                triggerSymbol = SlotSymbol.DUCK,
+                roundsLabel = "$updatedFreeSpinsGranted FREE SPINS • 2X MULTIPLIER",
+              ),
+          )
+        }
+      }
     } else if (nextBonusSpins > 0) {
       scheduleNextBonusSpin(delayMs = if (totalPayout > 0L) 1400L else 900L)
     }
@@ -515,8 +571,15 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
     val cur = _state.value
     val bonus = cur.shampooPickBonus ?: return
     val bonusAmount = bonus.totalBonusWonCents
-    val newWin = cur.winCents + bonusAmount
+    val combinedBonusWin = cur.pendingShampooTriggerCents + bonusAmount
     val newBalance = cur.balanceCents + bonusAmount
+    val finishingFreeSpinsToo = cur.bonusSpinsRemaining == 0 && cur.freeSpinsTotalGranted > 0
+    val summaryTotal =
+      if (finishingFreeSpinsToo) cur.freeSpinsTotalWonCents + bonusAmount else combinedBonusWin
+    val nextFreeSpinsTotal =
+      if (cur.bonusSpinsRemaining > 0) cur.freeSpinsTotalWonCents + bonusAmount else 0L
+    val nextFreeSpinsGranted =
+      if (cur.bonusSpinsRemaining > 0) cur.freeSpinsTotalGranted else 0
 
     soundManager.playWin(cur.soundEnabled, isBigWin = true)
 
@@ -524,17 +587,34 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
       it.copy(
         shampooPickBonus = null,
         balanceCents = newBalance,
-        winCents = newWin,
-        displayedWinCents = newWin,
+        winCents = summaryTotal,
+        displayedWinCents = summaryTotal,
+        pendingShampooTriggerCents = 0L,
+        freeSpinsTotalWonCents = nextFreeSpinsTotal,
+        freeSpinsTotalGranted = nextFreeSpinsGranted,
         totalWonCents = it.totalWonCents + bonusAmount,
-        biggestWinCents = maxOf(it.biggestWinCents, newWin),
-        statusBanner = "SHAMPOO PICK BONUS COLLECTED: +${formatCents(bonusAmount)}!",
+        biggestWinCents = maxOf(it.biggestWinCents, combinedBonusWin),
+        bonusSummary =
+          BonusSummary(
+            title = if (finishingFreeSpinsToo) "BONUS ROUND COMPLETE!" else "SHAMPOO BONUS COMPLETE!",
+            subtitle = "TOTAL BONUS WIN",
+            totalWonCents = summaryTotal,
+            triggerSymbol = SlotSymbol.SHAMPOO,
+            roundsLabel = "${bonus.totalPicksGranted} LUCKY BOTTLE PICKS",
+          ),
+        statusBanner = "SHAMPOO BONUS COMPLETE! TOTAL WIN: ${formatCents(summaryTotal)}",
       )
     }
     persistCurrent()
+  }
 
+  fun dismissBonusSummary() {
+    val cur = _state.value
+    if (cur.bonusSummary == null) return
+    soundManager.playButtonTap(cur.soundEnabled)
+    _state.update { it.copy(bonusSummary = null) }
     if (_state.value.bonusSpinsRemaining > 0) {
-      scheduleNextBonusSpin(delayMs = 950L)
+      scheduleNextBonusSpin(delayMs = 550L)
     }
   }
 
@@ -547,7 +627,8 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
           latest.bonusSpinsRemaining > 0 &&
           latest.skillPrompt == null &&
           latest.bonusCelebration == null &&
-          latest.shampooPickBonus == null
+          latest.shampooPickBonus == null &&
+          latest.bonusSummary == null
       ) {
         onPlayClick()
       }
@@ -700,8 +781,12 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
         bonusTriggerCells = emptySet(),
         bonusCelebration = null,
         shampooPickBonus = null,
+        bonusSummary = null,
         skillPrompt = null,
         bonusSpinsRemaining = 0,
+        freeSpinsTotalWonCents = 0L,
+        freeSpinsTotalGranted = 0,
+        pendingShampooTriggerCents = 0L,
         instantWinBadgeCents = null,
         totalSpins = 0,
         totalWonCents = 0L,

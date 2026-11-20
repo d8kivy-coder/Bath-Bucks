@@ -70,6 +70,20 @@ class SoundEffectManager(context: Context) {
     }
   }
 
+  fun setSpinLoopRate(rate: Float) {
+    if (activeSpinStreamId != 0) {
+      try {
+        soundPool?.setRate(activeSpinStreamId, rate.coerceIn(0.55f, 1.5f))
+      } catch (_: Throwable) {
+      }
+    }
+  }
+
+  fun playAnticipationCue(enabled: Boolean) {
+    if (!enabled) return
+    playCue(bubblePopId, volume = 0.90f, rate = 1.18f)
+  }
+
   fun stopSpinLoop() {
     if (activeSpinStreamId != 0) {
       try {
