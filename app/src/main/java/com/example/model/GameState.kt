@@ -50,7 +50,7 @@ data class ShampooPickBonus(
   val tiles: List<ShampooPickTile>,
   val totalBonusWonCents: Long = 0L,
   val globalMultiplier: Int = 1,
-  val lastRevealText: String = "TAP A LUCKY SHAMPOO BOTTLE TO REVEAL A PRIZE!",
+  val lastRevealText: String = "TAP A SUDSY FOAM BOTTLE TO REVEAL A PRIZE!",
   val isComplete: Boolean = false,
 )
 
@@ -96,6 +96,9 @@ data class GameState(
   val totalSpins: Int = 0,
   val totalWonCents: Long = 0L,
   val biggestWinCents: Long = 0L,
+  val playerDisplayName: String = "Bath Player",
+  val cloudSyncState: CloudSyncState = CloudSyncState.Syncing,
+  val winHistory: List<WinHistoryEntry> = emptyList(),
 ) {
   val isSpinning: Boolean
     get() = reelSpinning.any { it }

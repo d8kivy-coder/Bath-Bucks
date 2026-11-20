@@ -81,4 +81,8 @@ class PreferencesRepository(private val context: Context) {
       prefs[Keys.SKILL_MODE_ENABLED] = skillModeEnabled
     }
   }
+
+  suspend fun clearAll() {
+    context.dataStore.edit { prefs -> prefs.clear() }
+  }
 }

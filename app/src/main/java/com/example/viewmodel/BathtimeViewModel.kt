@@ -1,62 +1,215 @@
 package com.example.viewmodel
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.audio.SoundEffectManager
+import com.example.data.FirestoreRepository
 import com.example.data.PreferencesRepository
 import com.example.model.BonusCelebration
 import com.example.model.BonusSummary
 import com.example.model.BonusType
+import com.example.model.CloudSyncState
 import com.example.model.GameState
 import com.example.model.HotSwapSpot
 import com.example.model.Paylines
+import com.example.model.PlayerProfile
 import com.example.model.ShampooPickBonus
 import com.example.model.ShampooPickTile
 import com.example.model.SkillPrompt
 import com.example.model.SlotSymbol
+import com.example.model.WinCategory
 import com.example.model.formatCents
+import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlin.random.Random
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-class BathtimeViewModel(application: Application) : AndroidViewModel(application) {
-  private val prefs = PreferencesRepository(application.applicationContext)
-  val soundManager = SoundEffectManager(application.applicationContext)
+class BathtimeViewModel(
+  private val currentUserId: String,
+  initialDisplayName: String?,
+  private val firestoreRepository: FirestoreRepository,
+  private val prefs: PreferencesRepository,
+  val soundManager: SoundEffectManager,
+) : ViewModel() {
 
-  private val _state = MutableStateFlow(GameState())
+  private val resolvedDisplayName: String =
+    initialDisplayName?.trim()?.takeIf { it.isNotEmpty() }?.take(60) ?: "Bath Player"
+
+  private val _state = MutableStateFlow(GameState(playerDisplayName = resolvedDisplayName))
   val state: StateFlow<GameState> = _state.asStateFlow()
 
   private var spinJob: Job? = null
   private var countUpJob: Job? = null
   private var celebrationJob: Job? = null
+  private var profileObserverJob: Job? = null
+  private var historyObserverJob: Job? = null
+  private val profileInitJob: Job
   private var pendingShampooPicks: Int = 0
   @Volatile private var fastStopRequested = false
 
   init {
-    viewModelScope.launch {
-      val saved = prefs.arcadeDataFlow.first()
-      _state.update {
-        it.copy(
-          balanceCents = saved.balanceCents,
-          wagerCents =
-            if (saved.wagerCents in GameState.WAGER_OPTIONS_CENTS) saved.wagerCents else 100L,
-          progressiveCents = saved.progressiveCents,
-          soundEnabled = saved.soundEnabled,
-          hapticsEnabled = saved.hapticsEnabled,
-          skillModeEnabled = saved.skillModeEnabled,
-          totalSpins = saved.totalSpins,
-          totalWonCents = saved.totalWonCents,
-          biggestWinCents = saved.biggestWinCents,
+    profileInitJob =
+      viewModelScope.launch {
+        val saved = prefs.arcadeDataFlow.first()
+        _state.update {
+          it.copy(
+            playerDisplayName = resolvedDisplayName,
+            balanceCents = saved.balanceCents,
+            wagerCents =
+              if (saved.wagerCents in GameState.WAGER_OPTIONS_CENTS) saved.wagerCents else 100L,
+            progressiveCents = saved.progressiveCents,
+            soundEnabled = saved.soundEnabled,
+            hapticsEnabled = saved.hapticsEnabled,
+            skillModeEnabled = saved.skillModeEnabled,
+            totalSpins = saved.totalSpins,
+            totalWonCents = saved.totalWonCents,
+            biggestWinCents = saved.biggestWinCents,
+            cloudSyncState = CloudSyncState.Syncing,
+          )
+        }
+
+        val initResult =
+          firestoreRepository.ensureProfileExists(
+            userId = currentUserId,
+            displayName = resolvedDisplayName,
+            initialLocal = saved,
+          )
+        initResult.fold(
+          onSuccess = { profile ->
+            applyRemoteProfile(profile, forceApplyStats = true)
+          },
+          onFailure = { error ->
+            _state.update {
+              it.copy(
+                cloudSyncState =
+                  CloudSyncState.Error(error.localizedMessage ?: "Cloud sync unavailable")
+              )
+            }
+          },
+        )
+
+        startCloudObservers()
+      }
+  }
+
+  private fun startCloudObservers() {
+    profileObserverJob?.cancel()
+    profileObserverJob =
+      viewModelScope.launch {
+        firestoreRepository
+          .observePlayerProfile(currentUserId)
+          .catch { error ->
+            val firestoreError =
+              generateSequence(error) { it.cause }
+                .filterIsInstance<FirebaseFirestoreException>()
+                .firstOrNull()
+            if (firestoreError == null && error is CancellationException) throw error
+            _state.update {
+              it.copy(
+                cloudSyncState =
+                  CloudSyncState.Error(
+                    firestoreError?.localizedMessage ?: error.localizedMessage ?: "Cloud sync paused"
+                  )
+              )
+            }
+          }
+          .collect { profile ->
+            if (profile != null) {
+              applyRemoteProfile(profile, forceApplyStats = false)
+            }
+          }
+      }
+
+    historyObserverJob?.cancel()
+    historyObserverJob =
+      viewModelScope.launch {
+        firestoreRepository
+          .observeWinHistory(currentUserId)
+          .catch { error ->
+            val firestoreError =
+              generateSequence(error) { it.cause }
+                .filterIsInstance<FirebaseFirestoreException>()
+                .firstOrNull()
+            if (firestoreError == null && error is CancellationException) throw error
+            _state.update {
+              it.copy(
+                cloudSyncState =
+                  CloudSyncState.Error(
+                    firestoreError?.localizedMessage ?: error.localizedMessage ?: "Cloud sync paused"
+                  )
+              )
+            }
+          }
+          .collect { entries ->
+            _state.update { it.copy(winHistory = entries) }
+          }
+      }
+  }
+
+  private fun applyRemoteProfile(profile: PlayerProfile, forceApplyStats: Boolean) {
+    _state.update { cur ->
+      val safeToSyncStats =
+        forceApplyStats ||
+          (!cur.isSpinning &&
+            cur.shampooPickBonus == null &&
+            cur.bonusSpinsRemaining == 0 &&
+            cur.skillPrompt == null &&
+            cur.bonusCelebration == null)
+      val safeWager =
+        if (profile.wagerCents in GameState.WAGER_OPTIONS_CENTS) profile.wagerCents else cur.wagerCents
+      val safeName =
+        profile.displayName.trim().takeIf { it.isNotEmpty() } ?: cur.playerDisplayName
+
+      if (safeToSyncStats) {
+        cur.copy(
+          playerDisplayName = safeName,
+          balanceCents = profile.balanceCents,
+          wagerCents = safeWager,
+          progressiveCents = profile.progressiveCents.coerceAtLeast(GameState.PROGRESSIVE_SEED_CENTS),
+          totalSpins = profile.totalSpins.toInt().coerceAtLeast(0),
+          totalWonCents = profile.totalWonCents.coerceAtLeast(0L),
+          biggestWinCents = profile.biggestWinCents.coerceAtLeast(0L),
+          soundEnabled = profile.soundEnabled,
+          hapticsEnabled = profile.hapticsEnabled,
+          skillModeEnabled = profile.skillModeEnabled,
+          cloudSyncState = CloudSyncState.Synced,
+        )
+      } else {
+        cur.copy(
+          playerDisplayName = safeName,
+          soundEnabled = profile.soundEnabled,
+          hapticsEnabled = profile.hapticsEnabled,
+          skillModeEnabled = profile.skillModeEnabled,
+          cloudSyncState = CloudSyncState.Synced,
         )
       }
     }
+  }
+
+  fun prepareForSignOut() {
+    spinJob?.cancel()
+    countUpJob?.cancel()
+    celebrationJob?.cancel()
+    profileObserverJob?.cancel()
+    historyObserverJob?.cancel()
+    profileInitJob.cancel()
+    soundManager.stopSpinLoop()
+  }
+
+  suspend fun deleteCloudAndLocalData(): Result<Unit> {
+    val cloudResult = firestoreRepository.deleteUserAccountData(currentUserId)
+    if (cloudResult.isSuccess) {
+      prefs.clearAll()
+    }
+    return cloudResult
   }
 
   fun onStepWager(direction: Int) {
@@ -188,7 +341,7 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
     }
     delay(380L)
 
-    // Banilla "HOT SWAP" feature
+    // Bubble Pop wild feature
     val currentGrid = _state.value.grid
     val hasDuckOrWild = currentGrid.flatten().any { it == SlotSymbol.DUCK || it == SlotSymbol.WILD }
     val hotSwapChance = if (isBonusSpin) 0.30 else 0.14
@@ -199,7 +352,7 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
         _state.update {
           it.copy(
             hotSwapSpots = swapSpots,
-            statusBanner = "HOT SWAP! DUCK WILDS INCOMING!",
+            statusBanner = "BUBBLE POP! DUCK WILDS INCOMING!",
           )
         }
         soundManager.playBubblePop(_state.value.soundEnabled)
@@ -368,9 +521,9 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
     val banner =
       when {
         progressiveWon -> "PROGRESSIVE TOP PRIZE! +${formatCents(totalPayout)}"
-        shampooBonusPicks > 0 -> "SHAMPOO PICK BONUS! $shampooBonusPicks BOTTLE PICKS!"
-        duckBonusSpins > 0 -> "DUCKY FREE SPINS! +$duckBonusSpins FREE SPINS (2X)!"
-        freeSpinsJustFinished -> "FREE SPINS COMPLETE! TOTAL WIN: ${formatCents(updatedFreeSpinsTotal)}"
+        shampooBonusPicks > 0 -> "FOAM BOTTLE PICK! $shampooBonusPicks BOTTLE PICKS!"
+        duckBonusSpins > 0 -> "SPLASH BONUS SPINS! +$duckBonusSpins BONUS SPINS (2X)!"
+        freeSpinsJustFinished -> "BONUS SPINS COMPLETE! TOTAL WIN: ${formatCents(updatedFreeSpinsTotal)}"
         isSkillAward -> "CORRECT ICON CHOSEN! WIN ${formatCents(totalPayout)}"
         totalPayout > 0L -> "WINNER! ${formatCents(totalPayout)}"
         nextBonusSpins > 0 -> "FREE BONUS SPINS REMAINING: $nextBonusSpins"
@@ -435,6 +588,19 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
     }
 
     persistCurrent()
+
+    when {
+      progressiveWon && totalPayout > 0L ->
+        recordCloudWin("PROGRESSIVE TOP PRIZE", totalPayout, cur.wagerCents, WinCategory.PROGRESSIVE)
+      freeSpinsJustFinished && updatedFreeSpinsTotal > 0L ->
+        recordCloudWin("SPLASH BONUS SPINS", updatedFreeSpinsTotal, cur.wagerCents, WinCategory.FREE_SPINS)
+      isSkillAward && totalPayout > 0L && shampooBonusPicks == 0 && duckBonusSpins == 0 ->
+        recordCloudWin("SKILL BONUS WIN", totalPayout, cur.wagerCents, WinCategory.SKILL_WIN)
+      !wasBonusSpin && shampooBonusPicks == 0 && duckBonusSpins == 0 && totalPayout >= cur.wagerCents * 3L ->
+        recordCloudWin("BIG WIN", totalPayout, cur.wagerCents, WinCategory.BIG_WIN)
+      !wasBonusSpin && shampooBonusPicks == 0 && duckBonusSpins == 0 && totalPayout >= cur.wagerCents ->
+        recordCloudWin("LINE WIN", totalPayout, cur.wagerCents, WinCategory.LINE_WIN)
+    }
 
     if (totalPayout > 0L) {
       startCountUpAnimation(totalPayout)
@@ -509,7 +675,7 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
             totalPicksGranted = picks,
             wagerCents = wagerCents,
             tiles = shuffledTiles,
-            lastRevealText = "PICK $picks LUCKY SHAMPOO BOTTLES!",
+            lastRevealText = "PICK $picks SUDSY FOAM BOTTLES!",
           )
       )
     }
@@ -596,16 +762,24 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
         biggestWinCents = maxOf(it.biggestWinCents, combinedBonusWin),
         bonusSummary =
           BonusSummary(
-            title = if (finishingFreeSpinsToo) "BONUS ROUND COMPLETE!" else "SHAMPOO BONUS COMPLETE!",
+            title = if (finishingFreeSpinsToo) "BONUS ROUND COMPLETE!" else "FOAM BOTTLE BONUS COMPLETE!",
             subtitle = "TOTAL BONUS WIN",
             totalWonCents = summaryTotal,
             triggerSymbol = SlotSymbol.SHAMPOO,
-            roundsLabel = "${bonus.totalPicksGranted} LUCKY BOTTLE PICKS",
+            roundsLabel = "${bonus.totalPicksGranted} SUDSY BOTTLE PICKS",
           ),
-        statusBanner = "SHAMPOO BONUS COMPLETE! TOTAL WIN: ${formatCents(summaryTotal)}",
+        statusBanner = "FOAM BOTTLE BONUS COMPLETE! TOTAL WIN: ${formatCents(summaryTotal)}",
       )
     }
     persistCurrent()
+    if (summaryTotal > 0L) {
+      recordCloudWin(
+        label = if (finishingFreeSpinsToo) "BONUS ROUND WIN" else "FOAM BOTTLE BONUS",
+        payoutCents = summaryTotal,
+        wagerCents = bonus.wagerCents,
+        category = WinCategory.SHAMPOO_BONUS,
+      )
+    }
   }
 
   fun dismissBonusSummary() {
@@ -792,10 +966,43 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
         totalWonCents = 0L,
         biggestWinCents = 0L,
         showCollectDialog = false,
+        winHistory = emptyList(),
         statusBanner = "SESSION RESET • GOOD LUCK!",
       )
     }
     persistCurrent()
+    viewModelScope.launch {
+      profileInitJob.join()
+      firestoreRepository.clearWinHistory(currentUserId)
+    }
+  }
+
+  private fun recordCloudWin(
+    label: String,
+    payoutCents: Long,
+    wagerCents: Long,
+    category: WinCategory,
+  ) {
+    if (payoutCents <= 0L) return
+    viewModelScope.launch {
+      profileInitJob.join()
+      val result =
+        firestoreRepository.recordWinHistory(
+          userId = currentUserId,
+          label = label,
+          payoutCents = payoutCents,
+          wagerCents = wagerCents,
+          category = category,
+        )
+      result.onFailure { error ->
+        _state.update {
+          it.copy(
+            cloudSyncState =
+              CloudSyncState.Error(error.localizedMessage ?: "Unable to log win to cloud")
+          )
+        }
+      }
+    }
   }
 
   private fun persistCurrent() {
@@ -809,6 +1016,28 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
         totalWonCents = s.totalWonCents,
         biggestWinCents = s.biggestWinCents,
       )
+      profileInitJob.join()
+      val result =
+        firestoreRepository.saveGameplayStats(
+          userId = currentUserId,
+          displayName = s.playerDisplayName,
+          balanceCents = s.balanceCents,
+          wagerCents = s.wagerCents,
+          progressiveCents = s.progressiveCents,
+          totalSpins = s.totalSpins,
+          totalWonCents = s.totalWonCents,
+          biggestWinCents = s.biggestWinCents,
+        )
+      _state.update { cur ->
+        result.fold(
+          onSuccess = { cur.copy(cloudSyncState = CloudSyncState.Synced) },
+          onFailure = { err ->
+            cur.copy(
+              cloudSyncState = CloudSyncState.Error(err.localizedMessage ?: "Cloud sync pending")
+            )
+          },
+        )
+      }
     }
   }
 
@@ -820,11 +1049,30 @@ class BathtimeViewModel(application: Application) : AndroidViewModel(application
         hapticsEnabled = s.hapticsEnabled,
         skillModeEnabled = s.skillModeEnabled,
       )
+      profileInitJob.join()
+      val result =
+        firestoreRepository.saveSettings(
+          userId = currentUserId,
+          soundEnabled = s.soundEnabled,
+          hapticsEnabled = s.hapticsEnabled,
+          skillModeEnabled = s.skillModeEnabled,
+        )
+      _state.update { cur ->
+        result.fold(
+          onSuccess = { cur.copy(cloudSyncState = CloudSyncState.Synced) },
+          onFailure = { err ->
+            cur.copy(
+              cloudSyncState = CloudSyncState.Error(err.localizedMessage ?: "Settings sync pending")
+            )
+          },
+        )
+      }
     }
   }
 
   override fun onCleared() {
     super.onCleared()
+    prepareForSignOut()
     soundManager.release()
   }
 }

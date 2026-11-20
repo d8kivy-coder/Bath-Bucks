@@ -475,7 +475,7 @@ private fun DrawScope.drawShampooBottle(textMeasurer: TextMeasurer) {
     style = Stroke(width = w * 0.020f),
   )
 
-  // Signature purple & gold "LUCKY" curved label
+  // Signature purple & gold "SUDSY" curved label
   drawOval(
     brush = Brush.verticalGradient(listOf(Color(0xFF7E22CE), Color(0xFF4C1D95))),
     topLeft = Offset(w * 0.25f, h * 0.37f),
@@ -489,7 +489,7 @@ private fun DrawScope.drawShampooBottle(textMeasurer: TextMeasurer) {
   )
   val measured =
     textMeasurer.measure(
-      text = "LUCKY",
+      text = "SUDSY",
       style = TextStyle(
         fontFamily = LuckiestGuyFont,
         fontSize = (minOf(w, h) * 0.145f).toSp(),

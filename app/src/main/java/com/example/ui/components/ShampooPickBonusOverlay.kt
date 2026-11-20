@@ -112,7 +112,7 @@ fun ShampooPickBonusOverlay(
           // Header
           Box(contentAlignment = Alignment.Center) {
             Text(
-              text = "LUCKY SHAMPOO PICK BONUS!",
+              text = "FOAM BOTTLE PICK BONUS!",
               style =
                 TextStyle(
                   fontFamily = LuckiestGuyFont,
@@ -123,7 +123,7 @@ fun ShampooPickBonusOverlay(
               textAlign = TextAlign.Center,
             )
             Text(
-              text = "LUCKY SHAMPOO PICK BONUS!",
+              text = "FOAM BOTTLE PICK BONUS!",
               fontFamily = LuckiestGuyFont,
               fontSize = 23.sp,
               color = DuckGold,

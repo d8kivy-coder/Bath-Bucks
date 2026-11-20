@@ -639,7 +639,7 @@ private fun SpinningReelColumn(
             )
           } else if (isHotSwapCell) {
             Text(
-              text = "SWAP!",
+              text = "POP!",
               fontFamily = LuckiestGuyFont,
               fontSize = 9.sp,
               color = DuckGold,

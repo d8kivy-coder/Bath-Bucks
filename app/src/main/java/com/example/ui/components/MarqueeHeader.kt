@@ -164,7 +164,7 @@ fun MarqueeHeader(
               .padding(horizontal = 8.dp, vertical = 3.dp)
         ) {
           Text(
-            text = "HOT SWAP",
+            text = "BUBBLE POP",
             fontFamily = LuckiestGuyFont,
             fontSize = 11.sp,
             color = DuckGold,
@@ -222,12 +222,12 @@ fun MarqueeHeader(
       }
     }
 
-    // Center-bottom 3D outlined "BATHTIME BUCKS" title with warm shimmer
+    // Center-bottom 3D outlined "SUDSY DUCK REELS" title with warm shimmer
     Box(
       modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp),
       contentAlignment = Alignment.Center,
     ) {
-      OutlinedMarqueeTitle(text = "BATHTIME BUCKS", pulseAlpha = pulseAlpha)
+      OutlinedMarqueeTitle(text = stringResource(id = R.string.marquee_title), pulseAlpha = pulseAlpha)
     }
   }
 }

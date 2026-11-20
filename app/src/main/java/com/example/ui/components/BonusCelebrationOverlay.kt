@@ -260,14 +260,14 @@ fun BonusCelebrationOverlay(
               val title =
                 when (active.bonusType) {
                   BonusType.PROGRESSIVE -> "PROGRESSIVE!"
-                  BonusType.DUCK_SPINS -> "DUCKY FREE SPINS!"
-                  BonusType.SHAMPOO_PICK -> "SHAMPOO PICK BONUS!"
+                  BonusType.DUCK_SPINS -> "SPLASH BONUS SPINS!"
+                  BonusType.SHAMPOO_PICK -> "FOAM BOTTLE PICK!"
                 }
               OutlinedCelebrationText(text = title, fontSize = 24)
               val sub =
                 when (active.bonusType) {
                   BonusType.DUCK_SPINS -> "${active.triggerCount} RUBBER DUCKS LANDED!"
-                  BonusType.SHAMPOO_PICK -> "${active.triggerCount} LUCKY SHAMPOO BOTTLES!"
+                  BonusType.SHAMPOO_PICK -> "${active.triggerCount} SUDSY SHAMPOO BOTTLES!"
                   BonusType.PROGRESSIVE -> "5 WILD BUBBLES!"
                 }
               Text(
@@ -300,7 +300,7 @@ fun BonusCelebrationOverlay(
             ) {
               Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                  text = "${active.picksAwarded} LUCKY SHAMPOO PICKS!",
+                  text = "${active.picksAwarded} FOAM BOTTLE PICKS!",
                   fontFamily = LuckiestGuyFont,
                   fontSize = 21.sp,
                   color = BathDeepNavy,
@@ -328,7 +328,7 @@ fun BonusCelebrationOverlay(
             ) {
               Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                  text = "+${active.spinsAwarded} FREE SUDSY SPINS!",
+                  text = "+${active.spinsAwarded} SPLASH BONUS SPINS!",
                   fontFamily = LuckiestGuyFont,
                   fontSize = 21.sp,
                   color = Color.White,

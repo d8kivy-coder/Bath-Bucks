@@ -1,0 +1,207 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Hardened Global Primitives ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidWager(wager) {
+      return wager is int && (wager == 25 || wager == 50 || wager == 100 || wager == 200);
+    }
+
+    // --- Validation Blueprints ---
+    function isValidPlayerProfile(data, userId) {
+      return data.userId is string &&
+             data.userId == userId &&
+             data.userId == request.auth.uid &&
+             data.displayName is string &&
+             data.displayName.size() >= 1 &&
+             data.displayName.size() <= 60 &&
+             data.balanceCents is int &&
+             data.balanceCents >= 0 &&
+             data.balanceCents <= 100000000000 &&
+             isValidWager(data.wagerCents) &&
+             data.progressiveCents is int &&
+             data.progressiveCents >= 250000 &&
+             data.progressiveCents <= 100000000000 &&
+             data.totalSpins is int &&
+             data.totalSpins >= 0 &&
+             data.totalSpins <= 10000000 &&
+             data.totalWonCents is int &&
+             data.totalWonCents >= 0 &&
+             data.totalWonCents <= 100000000000 &&
+             data.biggestWinCents is int &&
+             data.biggestWinCents >= 0 &&
+             data.biggestWinCents <= 100000000000 &&
+             data.soundEnabled is bool &&
+             data.hapticsEnabled is bool &&
+             data.skillModeEnabled is bool &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time;
+    }
+
+    function isValidWinCategory(category) {
+      return category is string &&
+             category.size() >= 1 &&
+             category.size() <= 32 &&
+             category in ['LINE_WIN', 'BIG_WIN', 'FREE_SPINS', 'SHAMPOO_BONUS', 'SKILL_WIN', 'PROGRESSIVE'];
+    }
+
+    function isValidWinHistoryEntry(data, userId) {
+      return data.userId is string &&
+             data.userId == userId &&
+             data.userId == request.auth.uid &&
+             data.label is string &&
+             data.label.size() >= 1 &&
+             data.label.size() <= 80 &&
+             data.payoutCents is int &&
+             data.payoutCents >= 1 &&
+             data.payoutCents <= 100000000000 &&
+             isValidWager(data.wagerCents) &&
+             isValidWinCategory(data.category) &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time;
+    }
+
+    // --- Collection: /users/{userId} ---
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && isOwner(userId);
+      allow list: if false;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       isOwner(userId) &&
+                       incoming().keys().hasAll([
+                         'userId',
+                         'displayName',
+                         'balanceCents',
+                         'wagerCents',
+                         'progressiveCents',
+                         'totalSpins',
+                         'totalWonCents',
+                         'biggestWinCents',
+                         'soundEnabled',
+                         'hapticsEnabled',
+                         'skillModeEnabled',
+                         'createdAt',
+                         'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId',
+                         'displayName',
+                         'balanceCents',
+                         'wagerCents',
+                         'progressiveCents',
+                         'totalSpins',
+                         'totalWonCents',
+                         'biggestWinCents',
+                         'soundEnabled',
+                         'hapticsEnabled',
+                         'skillModeEnabled',
+                         'createdAt',
+                         'updatedAt'
+                       ]) &&
+                       isValidPlayerProfile(incoming(), userId);
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       isOwner(userId) &&
+                       isValidPlayerProfile(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         // Action 1: Gameplay & balance/stats sync
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'displayName',
+                           'balanceCents',
+                           'wagerCents',
+                           'progressiveCents',
+                           'totalSpins',
+                           'totalWonCents',
+                           'biggestWinCents',
+                           'updatedAt'
+                         ]) ||
+                         // Action 2: Cabinet settings toggle
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'soundEnabled',
+                           'hapticsEnabled',
+                           'skillModeEnabled',
+                           'updatedAt'
+                         ]) ||
+                         // Action 3: Session reset / full state reconciliation
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'displayName',
+                           'balanceCents',
+                           'wagerCents',
+                           'progressiveCents',
+                           'totalSpins',
+                           'totalWonCents',
+                           'biggestWinCents',
+                           'soundEnabled',
+                           'hapticsEnabled',
+                           'skillModeEnabled',
+                           'updatedAt'
+                         ])
+                       );
+
+      allow delete: if isSignedIn() && isValidId(userId) && isOwner(userId);
+
+      // --- Subcollection: /users/{userId}/winHistory/{entryId} ---
+      match /winHistory/{entryId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(entryId) && isOwner(userId);
+        allow list: if isSignedIn() && isValidId(userId) && isOwner(userId);
+
+        allow create: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(entryId) &&
+                         isOwner(userId) &&
+                         incoming().keys().hasAll([
+                           'userId',
+                           'label',
+                           'payoutCents',
+                           'wagerCents',
+                           'category',
+                           'createdAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId',
+                           'label',
+                           'payoutCents',
+                           'wagerCents',
+                           'category',
+                           'createdAt'
+                         ]) &&
+                         isValidWinHistoryEntry(incoming(), userId);
+
+        // Win history ledger entries are immutable once recorded
+        allow update: if false;
+
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(entryId) && isOwner(userId);
+      }
+    }
+  }
+}

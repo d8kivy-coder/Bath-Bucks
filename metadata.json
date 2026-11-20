@@ -1,6 +1,6 @@
 {
-  "name": "Bathtime Bucks",
-  "description": "Arcade 5-reel skill slot game with rubber ducky wilds, Hot Swap bonuses, Skill Nudge picks, Bonus Spins, and virtual amusement credits.",
+  "name": "Sudsy Duck Reels",
+  "description": "Arcade 5-reel skill slot game with rubber ducky wilds, Bubble Pop wild bursts, Skill Nudge picks, Splash Bonus Spins, Foam Bottle Picks, and virtual amusement credits.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

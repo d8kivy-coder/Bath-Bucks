@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Preserve Firestore data models and @Keep classes for R8/ProGuard release builds
+-keep @androidx.annotation.Keep class * { *; }
+-keepclassmembers class com.example.model.PlayerProfile { *; }
+-keepclassmembers class com.example.model.WinHistoryEntry { *; }
+-keepclassmembers enum com.example.model.WinCategory { *; }

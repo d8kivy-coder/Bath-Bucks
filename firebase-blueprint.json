@@ -1,0 +1,142 @@
+{
+  "entities": {
+    "PlayerProfile": {
+      "title": "PlayerProfile",
+      "description": "Cloud-synced Bathtime Bucks player profile storing virtual amusement credits, progressive prize counter, session statistics, and cabinet settings.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID matching the parent document ID."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Player display name shown on the virtual amusement ticket and cabinet settings."
+        },
+        "balanceCents": {
+          "type": "integer",
+          "description": "Current virtual amusement credit balance in cents (no real-money value)."
+        },
+        "wagerCents": {
+          "type": "integer",
+          "description": "Selected virtual play amount in cents (25, 50, 100, or 200)."
+        },
+        "progressiveCents": {
+          "type": "integer",
+          "description": "Current virtual progressive top prize meter in cents."
+        },
+        "totalSpins": {
+          "type": "integer",
+          "description": "Cumulative spins played across synced sessions."
+        },
+        "totalWonCents": {
+          "type": "integer",
+          "description": "Cumulative virtual credits won in cents."
+        },
+        "biggestWinCents": {
+          "type": "integer",
+          "description": "Largest single spin or bonus virtual payout in cents."
+        },
+        "soundEnabled": {
+          "type": "boolean",
+          "description": "Whether arcade sound effects are enabled."
+        },
+        "hapticsEnabled": {
+          "type": "boolean",
+          "description": "Whether tactile vibration feedback is enabled."
+        },
+        "skillModeEnabled": {
+          "type": "boolean",
+          "description": "Whether Banilla Skill Nudge / Choose mode is enabled."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the player profile was created (written via FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the latest synced update (written via FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "balanceCents",
+        "wagerCents",
+        "progressiveCents",
+        "totalSpins",
+        "totalWonCents",
+        "biggestWinCents",
+        "soundEnabled",
+        "hapticsEnabled",
+        "skillModeEnabled",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "WinHistoryEntry": {
+      "title": "WinHistoryEntry",
+      "description": "Immutable record of a notable Bathtime Bucks virtual win or bonus round completion synced to the player's cloud ledger.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID owning this win history entry."
+        },
+        "label": {
+          "type": "string",
+          "description": "Human-readable title of the win or bonus round (e.g., DUCKY FREE SPINS, SHAMPOO PICK BONUS)."
+        },
+        "payoutCents": {
+          "type": "integer",
+          "description": "Virtual credits won in cents."
+        },
+        "wagerCents": {
+          "type": "integer",
+          "description": "Virtual play amount in cents active during the win."
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "LINE_WIN",
+            "BIG_WIN",
+            "FREE_SPINS",
+            "SHAMPOO_BONUS",
+            "SKILL_WIN",
+            "PROGRESSIVE"
+          ],
+          "description": "Classification of the arcade win event."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the win was recorded (written via FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "label",
+        "payoutCents",
+        "wagerCents",
+        "category",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/PlayerProfile"
+      },
+      "description": "Per-user private cloud profile storing virtual amusement credits, progressive counter, stats, and cabinet preferences."
+    },
+    "/users/{userId}/winHistory/{entryId}": {
+      "schema": {
+        "$ref": "#/entities/WinHistoryEntry"
+      },
+      "description": "Per-user subcollection of notable virtual wins and completed bonus round payouts."
+    }
+  }
+}

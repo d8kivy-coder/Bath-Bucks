@@ -23,7 +23,7 @@ enum class SlotSymbol(
   DUCK("RUBBER DUCK", weight = 6, pay2 = 0, pay3 = 15, pay4 = 60, pay5 = 250, accentColor = DuckGold),
   BOAT("TOY BOAT", weight = 7, pay2 = 0, pay3 = 10, pay4 = 40, pay5 = 150, accentColor = DuckBillOrange),
   SOAP("SOAP BAR", weight = 8, pay2 = 0, pay3 = 8, pay4 = 30, pay5 = 100, accentColor = Color(0xFF38BDF8)),
-  SHAMPOO("LUCKY BONUS", weight = 6, pay2 = 0, pay3 = 5, pay4 = 15, pay5 = 50, accentColor = ArcadeGreenBright),
+  SHAMPOO("FOAM BONUS", weight = 6, pay2 = 0, pay3 = 5, pay4 = 15, pay5 = 50, accentColor = ArcadeGreenBright),
   BELL("GOLD BELL", weight = 9, pay2 = 0, pay3 = 6, pay4 = 20, pay5 = 75, accentColor = DuckGold),
   TRIPLE_BAR("3X BAR", weight = 10, pay2 = 0, pay3 = 5, pay4 = 15, pay5 = 50, accentColor = BarGreen, isBar = true),
   DOUBLE_BAR("2X BAR", weight = 11, pay2 = 0, pay3 = 4, pay4 = 12, pay5 = 35, accentColor = BarBlue, isBar = true),

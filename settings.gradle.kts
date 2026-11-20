@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Bathtime Bucks"
+rootProject.name = "Sudsy Duck Reels"
 
 include(":app")
